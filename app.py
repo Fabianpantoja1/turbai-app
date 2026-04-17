@@ -1,95 +1,234 @@
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-import folium
 from streamlit_folium import st_folium
 
-# --- CONFIGURACIÓN DE LA PÁGINA ---
-st.set_page_config(layout="wide", page_title="TurbAi - Análisis Político")
+# 1. CONFIGURACIÓN DE PÁGINA
+st.set_page_config(layout="wide", page_title="TurbAi - Dashboard Electoral")
 
-# Inyectar el CSS que ya tenías para mantener la estética
+# 2. REFERENCIA VISUAL Y ESTILOS (Tus estilos exactos + FontAwesome para los íconos)
 st.markdown("""
-    <style>
-    .ia-report-container {
-        border-left: 5px solid #111827;
-        background: #f9fafb;
-        padding: 20px;
-        border-radius: 4px;
-        border: 1px solid #e5e7eb;
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+    @import url('https://rsms.me/inter/inter.css');
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif !important;
+        color: #1f2937 !important;
     }
-    </style>
-    """, unsafe_allow_html=True)
+    .filter-card {
+        background-color: #f9fafb;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    .card-title { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #111827; }
+    .ranking-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .ranking-table td { padding: 4px 6px; border-bottom: 1px solid #f3f4f6; }
+    
+    .ia-report-container {
+        border-left: 4px solid #111827;
+        background: #ffffff;
+        padding: 20px;
+        margin-top: 15px;
+        border-radius: 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        border: 1px solid #e5e7eb;
+        border-left-width: 5px;
+    }
+    .ia-badge {
+        font-size: 9px;
+        color: #6b7280 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        font-weight: 700;
+        margin-bottom: 10px;
+        display: block;
+    }
+    .ia-text { font-size: 13px !important; line-height: 1.7 !important; color: #374151 !important; text-align: justify; }
+    .ia-text b, .ia-text strong { color: #111827 !important; font-weight: 700; }
+    .ia-text p { margin-bottom: 15px; }
+</style>
+""", unsafe_allow_html=True)
 
-# --- CARGA DE DATOS ---
-@st.cache_data # Esto hace que la app sea veloz
+# 3. CARGA DE DATOS
+@st.cache_data
 def cargar_datos():
-    # Asegúrate de que estos archivos estén en la misma carpeta que app.py
+    # Cambia "datos_votos.zip" por "datos_votos.csv" si estás usando el CSV directamente
     df = pd.read_csv("datos_votos.zip") 
-    muni = gpd.read_file("mapa_municipios.json")
+    muni = gpd.read_file("mapa_municipios.geojson")
+    muni.index = muni.index.astype(str) # Tu lógica original
+    # Asegurar que VOTOS sea numérico
+    df['VOTOS'] = pd.to_numeric(df['VOTOS'], errors='coerce').fillna(0)
     return df, muni
 
 try:
     df_agrupado, municipios = cargar_datos()
-except:
-    st.error("⚠️ No se encontraron los archivos de datos. Asegúrate de subirlos a GitHub.")
+except Exception as e:
+    st.error(f"⚠️ Error cargando datos: {e}")
     st.stop()
 
-# --- SIDEBAR (FILTROS) ---
-st.sidebar.title("🚀 TurbAi Dashboard")
-st.sidebar.markdown("Desarrollado por **Caid Analitycs**")
+# 4. EXTRACCIÓN DE LISTAS
+lista_dep_base = sorted(df_agrupado['DEPNOMBRE'].astype(str).unique().tolist())
+lista_depnombre = ['NACIONAL'] + lista_dep_base 
+lista_cornombre = sorted(df_agrupado['CORNOMBRE'].astype(str).unique().tolist())
+lista_temas = ['YlGnBu', 'YlGn', 'YlOrRd', 'Blues', 'Greens', 'Oranges', 'coolwarm','RdYlGn', 'Spectral', 'RdBu', 'crest', 'viridis', 'Paired', 'Set3']
 
-dep_seleccionado = st.sidebar.selectbox("Seleccione Departamento:", ["NACIONAL"] + sorted(df_agrupado['DEPNOMBRE'].unique().tolist()))
+# ENCABEZADO PRINCIPAL
+st.markdown('<div style="background:#111827; padding:15px; border-radius:8px 8px 0 0;"><h2 style="color:white; margin:0; font-size:18px;">Dashboard Electoral TurbAi</h2></div>', unsafe_allow_html=True)
 
-# Filtro dinámico de municipios
-if dep_seleccionado == 'NACIONAL':
-    muni_opciones = ["Nivel Nacional"]
-else:
-    muni_opciones = ["TODOS"] + sorted(df_agrupado[df_agrupado['DEPNOMBRE'] == dep_seleccionado]['MUNNOMBRE'].unique().tolist())
-muni_seleccionado = st.sidebar.selectbox("Seleccione Municipio:", muni_opciones)
+# 5. WIDGETS Y LÓGICA DE FILTRADO (Diseño en columnas)
+col_izq, col_der = st.columns(2)
 
-# Otros filtros
-corporacion = st.sidebar.selectbox("Corporación:", df_agrupado['CORNOMBRE'].unique())
-partido = st.sidebar.selectbox("Partido:", df_agrupado[df_agrupado['CORNOMBRE'] == corporacion]['PARNOMBRE'].unique())
+with col_izq:
+    st.markdown('<div class="filter-card"><p class="card-title"><i class="fa fa-map-marker-alt"></i> Filtros Geográficos</p>', unsafe_allow_html=True)
+    c1, c2 = st.columns([3, 1])
+    dropdown_dep = c1.selectbox('Alcance:', lista_depnombre, index=0)
+    check_excluir_dep = c2.checkbox('Excluir Depto', value=False)
+    
+    if dropdown_dep == 'NACIONAL':
+        opciones_muni = ['Nivel Nacional']
+        disabled_muni = True
+    else:
+        opciones_muni = ['TODOS'] + sorted(df_agrupado[df_agrupado['DEPNOMBRE'] == dropdown_dep]['MUNNOMBRE'].astype(str).unique().tolist())
+        disabled_muni = False
+        
+    c3, c4 = st.columns([3, 1])
+    dropdown_muni = c3.selectbox('Municipio:', opciones_muni, disabled=disabled_muni)
+    check_excluir_muni = c4.checkbox('Excluir Muni', value=False, disabled=disabled_muni)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# --- LÓGICA DE FILTRADO ---
-# (Aquí va la misma lógica de máscaras de pandas que ya tienes)
-mask = (df_agrupado['CORNOMBRE'] == corporacion) & (df_agrupado['PARNOMBRE'] == partido)
-if dep_seleccionado != "NACIONAL":
-    mask &= (df_agrupado['DEPNOMBRE'] == dep_seleccionado)
-    if muni_seleccionado != "TODOS":
-        mask &= (df_agrupado['MUNNOMBRE'] == muni_seleccionado)
+with col_der:
+    st.markdown('<div class="filter-card"><p class="card-title"><i class="fa fa-users"></i> Selección de Candidatura</p>', unsafe_allow_html=True)
+    dropdown_cor = st.selectbox('Corporación:', lista_cornombre)
+    
+    lista_parnombre = sorted(df_agrupado[df_agrupado['CORNOMBRE'] == dropdown_cor]['PARNOMBRE'].astype(str).unique().tolist())
+    dropdown_par = st.selectbox('Partido:', lista_parnombre if lista_parnombre else ['Sin Partidos'])
+    
+    lista_can = sorted(df_agrupado[(df_agrupado['CORNOMBRE'] == dropdown_cor) & (df_agrupado['PARNOMBRE'] == dropdown_par)]['CANNOMBRE'].astype(str).unique().tolist())
+    dropdown_can = st.selectbox('Candidato:', ['TODOS'] + lista_can if lista_can else ['Sin Candidatos'])
+    
+    dropdown_tema = st.selectbox('Paleta de colores:', lista_temas, index=0)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-df_final = df_agrupado[mask].copy()
+# 6. FILTRADO DE DATOS FINAL
+mask_geo = pd.Series(True, index=df_agrupado.index)
+if dropdown_dep != 'NACIONAL':
+    if check_excluir_dep: mask_geo &= (df_agrupado['DEPNOMBRE'] != dropdown_dep)
+    else:
+        mask_geo &= (df_agrupado['DEPNOMBRE'] == dropdown_dep)
+        if dropdown_muni != 'TODOS':
+            if check_excluir_muni: mask_geo &= (df_agrupado['MUNNOMBRE'] != dropdown_muni)
+            else: mask_geo &= (df_agrupado['MUNNOMBRE'] == dropdown_muni)
 
-# --- VISUALIZACIÓN ---
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Total Votos", f"{df_final['VOTOS'].sum():,.0f}")
-with col2:
-    st.metric("Municipios", len(df_final['MUNNOMBRE'].unique()))
+df_corp_geo = df_agrupado[(df_agrupado['CORNOMBRE'] == dropdown_cor) & mask_geo].copy()
+df_partido_geo = df_corp_geo[df_corp_geo['PARNOMBRE'] == dropdown_par].copy()
 
-# --- EL MAPA ---
-st.subheader("📍 Distribución Geográfica")
-if not df_final.empty:
-    # Agrupar para el mapa
-    # Agrupar por el índice (como lo tenías originalmente)
-    v_mapa = df_final.groupby(level=0).agg({'VOTOS': 'sum', 'MUNNOMBRE': 'first'}) 
-    municipios.index = municipios.index.astype(str)
+query_final = (df_agrupado['CORNOMBRE'] == dropdown_cor) & (df_agrupado['PARNOMBRE'] == dropdown_par) & mask_geo
+if dropdown_can not in ['TODOS', 'Sin Candidatos']:
+    query_final &= (df_agrupado['CANNOMBRE'] == dropdown_can)
+
+votos_final = df_agrupado[query_final].copy()
+
+# 7. PROCESAMIENTO DE LAS TABLAS
+if not votos_final.empty:
+    top_muni = votos_final.groupby('MUNNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+    top_depto = votos_final.groupby('DEPNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+    top_partidos = df_corp_geo.groupby('PARNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+    
+    # Manejo seguro si la columna CANCEDULA no existe
+    if 'CANCEDULA' in df_partido_geo.columns:
+        top_cand_partido = df_partido_geo[df_partido_geo['CANCEDULA'] > 0].groupby('CANNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+        top_cand_regional = df_corp_geo[df_corp_geo['CANCEDULA'] > 0].groupby('CANNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+    else:
+        top_cand_partido = df_partido_geo.groupby('CANNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+        top_cand_regional = df_corp_geo.groupby('CANNOMBRE')['VOTOS'].sum().sort_values(ascending=False).head(10)
+
+    vm = votos_final.groupby(level=0)['VOTOS'].sum()
+
+    stats_data = {
+        'TOTAL VOTOS': vm.sum(),
+        'PROMEDIO': vm.mean(),
+        'MEDIANA': vm.median(),
+        'MÁXIMO': vm.max(), 
+        'DESVIACIÓN': vm.std(),
+    }
+
+    rangos_data = {
+        'MUNICIPIOS': len(vm),
+        '0 - 500 VOTOS': len(vm[vm <= 500]),
+        '500 - 5k VOTOS': len(vm[(vm > 500) & (vm <= 5000)]),
+        '5k - 20k VOTOS': len(vm[(vm > 5000) & (vm <= 20000)]),
+        '> 20k VOTOS': len(vm[vm > 20000])
+    }
+
+    # FUNCIONES DE RENDERIZADO HTML (Tus funciones adaptadas)
+    def crear_col(titulo, serie, icono):
+        html = f'<div style="flex: 1; padding: 0 8px; border-right: 1px solid #e5e7eb;">'
+        html += f'<p class="card-title" style="text-align:center;"><i class="fa {icono}"></i> {titulo}</p><table class="ranking-table">'
+        for idx, val in serie.items():
+            html += f'<tr><td style="font-size:10px;">{str(idx)[:15]}</td><td style="text-align:right; font-weight:600;">{val:,.0f}</td></tr>'
+        return html + '</table></div>'
+
+    def render_tabla_stats(titulo, diccionario, icono):
+        html = f'<div style="flex: 1; padding: 0 8px;">'
+        html += f'<p class="card-title" style="text-align:center;"><i class="fa {icono}"></i> {titulo}</p><table class="ranking-table">'
+        for k, v in diccionario.items():
+            html += f'<tr><td style="font-size:10px;">{k}</td><td style="text-align:right; font-weight:600;">{v:,.0f}</td></tr>'
+        return html + '</table></div>'
+
+    # RENDERIZAR EL RECUADRO DE MÉTRICAS (Exactamente tu HTML)
+    html_metricas = f"""
+    <div class="filter-card" style="display: flex; flex-direction: row; justify-content: space-between; background-color: white; padding: 20px 10px;">
+        {crear_col('TOP MUNICIPIOS', top_muni, 'fa-building')}
+        {crear_col('TOP DEPTOS', top_depto, 'fa-map')}
+        {crear_col('CAND. PARTIDO', top_cand_partido, 'fa-user')}
+        {crear_col('TOP PARTIDOS', top_partidos, 'fa-flag')}
+        {crear_col('CAND. REGIONAL', top_cand_regional, 'fa-globe')}
+        {render_tabla_stats('MÉTRICAS', stats_data, 'fa-calculator')}
+        {render_tabla_stats('RANGOS', rangos_data, 'fa-layer-group')}
+    </div>
+    """
+    st.markdown(html_metricas, unsafe_allow_html=True)
+
+    # 8. EL MAPA INTERACTIVO
+    v_mapa = votos_final.groupby(level=0).agg({'VOTOS': 'sum', 'MUNNOMBRE': 'first'})
     v_mapa.index = v_mapa.index.astype(str)
     mapa_final = municipios.join(v_mapa[['VOTOS', 'MUNNOMBRE']], how='left')
-    
-    m = mapa_final.explore(
-        column="VOTOS",
-        cmap="YlGnBu",
-        tooltip=["MUNNOMBRE", "VOTOS"],
-        style_kwds={"fillOpacity": 0.8}
-    )
-    
-    # Mostrar mapa en Streamlit
-    st_folium(m, width=1200, height=500)
 
-# --- BOTÓN DE IA ---
-if st.button("GENERAR ANÁLISIS TURB-AI"):
-    with st.spinner("⚡ Procesando con Turb-AI..."):
-        # Aquí llamarías a tu función generar_reporte_ia
-        st.markdown('<div class="ia-report-container">Análisis generado con éxito...</div>', unsafe_allow_html=True)
+    if not mapa_final.empty:
+        m = mapa_final.explore(
+            column="VOTOS",
+            cmap=dropdown_tema,
+            scheme="NaturalBreaks", 
+            k=min(40, len(mapa_final['VOTOS'].dropna().unique())), # Evita el warning de mapclassify
+            tooltip=["MUNNOMBRE", "VOTOS"],
+            popup=True,
+            missing_kwds={"color": "#FFFFFF", "label": "Sin votos", "edgecolor": "#686f79"},
+            style_kwds={"fillOpacity": 1.0, "weight": 0.3, "color": "#686f79"},
+            legend=True
+        )
+        st_folium(m, width=1300, height=600, returned_objects=[])
+else:
+    st.warning("⚠️ No hay datos para la selección actual.")
+
+# 9. BOTÓN Y REPORTE DE IA
+if st.button("🤖 GENERAR ANÁLISIS CAID ANALITYCS", type="primary", use_container_width=True):
+    # Aquí iría el texto real de tu función generar_reporte_ia()
+    texto_simulado = f"""
+    <p>Basado en los datos analizados para la candidatura de <b>{dropdown_can}</b> del partido <b>{dropdown_par}</b> en la corporación <b>{dropdown_cor}</b>, se observan las siguientes tendencias estratégicas:</p>
+    <p>1. <b>Concentración Geográfica:</b> Se evidencia un fuerte peso electoral en los municipios principales, lo que sugiere un voto de opinión o estructura consolidada en cascos urbanos.</p>
+    <p>2. <b>Oportunidades de Crecimiento:</b> Existen zonas periféricas con alto potencial donde el partido tiene fuerza, pero la candidatura específica aún no capta ese electorado.</p>
+    """
+    
+    st.markdown(f"""
+        <div class="ia-report-container">
+            <span class="ia-badge">ANÁLISIS ESTRATÉGICO DE DATOS</span>
+            <p class="card-title" style="margin-top:0; border:none; text-align:left; font-size: 12px; color: #111827;">
+                <i class="fa fa-terminal"></i> SERPA-AI CONSULTING
+            </p>
+            <div class="ia-text">
+                {texto_simulado}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
