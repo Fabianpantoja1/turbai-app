@@ -72,8 +72,11 @@ with col2:
 st.subheader("📍 Distribución Geográfica")
 if not df_final.empty:
     # Agrupar para el mapa
-    v_mapa = df_final.groupby('MUNNOMBRE').agg({'VOTOS': 'sum'}).reset_index()
-    mapa_final = municipios.merge(v_mapa, on='MUNNOMBRE', how='left')
+    # Agrupar por el índice (como lo tenías originalmente)
+    v_mapa = df_final.groupby(level=0).agg({'VOTOS': 'sum', 'MUNNOMBRE': 'first'}) 
+    municipios.index = municipios.index.astype(str)
+    v_mapa.index = v_mapa.index.astype(str)
+    mapa_final = municipios.join(v_mapa[['VOTOS', 'MUNNOMBRE']], how='left')
     
     m = mapa_final.explore(
         column="VOTOS",
