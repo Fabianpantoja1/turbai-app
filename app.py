@@ -24,8 +24,8 @@ st.markdown("""
 @st.cache_data # Esto hace que la app sea veloz
 def cargar_datos():
     # Asegúrate de que estos archivos estén en la misma carpeta que app.py
-    df = pd.read_csv("tu_archivo_de_votos.csv") 
-    muni = gpd.read_file("tu_mapa_municipios.geojson")
+    df = pd.read_csv("datos_votos.zip") 
+    muni = gpd.read_file("mapa_municipios.json")
     return df, muni
 
 try:
