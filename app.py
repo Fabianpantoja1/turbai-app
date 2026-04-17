@@ -56,7 +56,7 @@ st.markdown("""
 def cargar_datos():
     # Asegúrate de que el archivo se llame así. Si subiste un CSV sin comprimir, cambia el nombre aquí.
     df = pd.read_csv("datos_votos.zip") 
-    muni = gpd.read_file("mapa_municipios.json")
+    muni = gpd.read_file("mapa_municipios.geojson")
     
     muni.index = muni.index.astype(str)
     df['VOTOS'] = pd.to_numeric(df['VOTOS'], errors='coerce').fillna(0)
