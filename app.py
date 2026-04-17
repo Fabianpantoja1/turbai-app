@@ -253,4 +253,3 @@ if st.session_state.get('mostrar_reporte', False):
             
         else:
             st.warning("⚠️ No hay datos registrados para esta combinación exacta de filtros. Intenta cambiar de candidato o de partido.")
-    """, unsafe_allow_html=True)
